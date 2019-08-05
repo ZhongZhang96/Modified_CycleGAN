@@ -1,6 +1,0 @@
-python train.py --X=data/tfrecords/X.tfrecords --Y=data/tfrecords/Y.tfrecords  --batch_size=4 --use_lsgan=True
-
-python inference.py --model pretrained/XtoY.pb \
-                     --input input_sample.jpg \
-                     --output output_sample.jpg \
-                     --image_size 256

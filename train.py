@@ -26,6 +26,12 @@ tf.flags.DEFINE_float('pool_size', 50,
                       'size of image buffer that stores previously generated images, default: 50')
 tf.flags.DEFINE_integer('ngf', 64,
                         'number of gen filters in first conv layer, default: 64')
+tf.flags.DEFINE_integer('frozen_step', 1000,
+                        'frozen updating of F after frozen_step')
+tf.flags.DEFINE_integer('save_freq', 10000,
+                        'frequency of saving checkpoints')
+tf.flags.DEFINE_integer('max_ckpt', 5,
+                        'max number of latest checkpoints to keep')
 
 tf.flags.DEFINE_string('X', 'data/tfrecords/apple.tfrecords',
                        'X tfrecords file for training, default: data/tfrecords/apple.tfrecords')
@@ -33,14 +39,16 @@ tf.flags.DEFINE_string('Y', 'data/tfrecords/orange.tfrecords',
                        'Y tfrecords file for training, default: data/tfrecords/orange.tfrecords')
 tf.flags.DEFINE_string('load_model', None,
                         'folder of saved model that you wish to continue training (e.g. 20170602-1936), default: None')
+tf.flags.DEFINE_string('ckpt_dir', 'checkpoints',
+                       'directory to save checkpoints')
 
 
 def train():
   if FLAGS.load_model is not None:
-    checkpoints_dir = "checkpoints/" + FLAGS.load_model.lstrip("checkpoints/")
+    checkpoints_dir = FLAGS.load_model
   else:
     current_time = datetime.now().strftime("%Y%m%d-%H%M")
-    checkpoints_dir = "checkpoints/{}".format(current_time)
+    checkpoints_dir = FLAGS.ckpt_dir+"/{}".format(current_time)
     try:
       os.makedirs(checkpoints_dir)
     except os.error:
@@ -62,11 +70,12 @@ def train():
         ngf=FLAGS.ngf
     )
     G_loss, D_Y_loss, F_loss, D_X_loss, fake_y, fake_x = cycle_gan.model()
-    optimizers = cycle_gan.optimize(G_loss, D_Y_loss, F_loss, D_X_loss)
+    optimizers = cycle_gan.optimize({'G_loss': G_loss, 'D_Y_loss': D_Y_loss, 'F_loss': F_loss, 'D_X_loss': D_X_loss}, False)
+    optimizers_frozen_F = cycle_gan.optimize({'G_loss': G_loss, 'D_Y_loss': D_Y_loss}, True)
 
     summary_op = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter(checkpoints_dir, graph)
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(max_to_keep = FLAGS.max_ckpt)
 
   with tf.Session(graph=graph) as sess:
     if FLAGS.load_model is not None:
@@ -90,14 +99,24 @@ def train():
         # get previously generated images
         fake_y_val, fake_x_val = sess.run([fake_y, fake_x])
 
-        # train
-        _, G_loss_val, D_Y_loss_val, F_loss_val, D_X_loss_val, summary = (
-              sess.run(
-                  [optimizers, G_loss, D_Y_loss, F_loss, D_X_loss, summary_op],
-                  feed_dict={cycle_gan.fake_y: fake_Y_pool.query(fake_y_val),
-                             cycle_gan.fake_x: fake_X_pool.query(fake_x_val)}
-              )
-        )
+        if step > FLAGS.frozen_step:
+          # train
+          _, G_loss_val, D_Y_loss_val, F_loss_val, D_X_loss_val, summary = (
+                sess.run(
+                    [optimizers_frozen_F, G_loss, D_Y_loss, F_loss, D_X_loss, summary_op],
+                    feed_dict={cycle_gan.fake_y: fake_Y_pool.query(fake_y_val),
+                              cycle_gan.fake_x: fake_X_pool.query(fake_x_val)}
+                )
+          )
+        else:
+          # train
+          _, G_loss_val, D_Y_loss_val, F_loss_val, D_X_loss_val, summary = (
+                sess.run(
+                    [optimizers, G_loss, D_Y_loss, F_loss, D_X_loss, summary_op],
+                    feed_dict={cycle_gan.fake_y: fake_Y_pool.query(fake_y_val),
+                              cycle_gan.fake_x: fake_X_pool.query(fake_x_val)}
+                )
+          )
 
         train_writer.add_summary(summary, step)
         train_writer.flush()
@@ -108,8 +127,12 @@ def train():
           logging.info('  D_Y_loss : {}'.format(D_Y_loss_val))
           logging.info('  F_loss   : {}'.format(F_loss_val))
           logging.info('  D_X_loss : {}'.format(D_X_loss_val))
+        
+        if step==FLAGS.frozen_step:
+          save_path = saver.save(sess, checkpoints_dir + "/model_before_frozen.ckpt", global_step=step)
+          logging.info("Model saved in file: %s" % save_path)
 
-        if step % 1000 == 0:
+        if step % FLAGS.save_freq == 0:
           save_path = saver.save(sess, checkpoints_dir + "/model.ckpt", global_step=step)
           logging.info("Model saved in file: %s" % save_path)
 

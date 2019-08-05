@@ -16,6 +16,7 @@ import utils
 FLAGS = tf.flags.FLAGS
 
 tf.flags.DEFINE_string('checkpoint_dir', '', 'checkpoints directory path')
+tf.flags.DEFINE_string('output_dir', 'pretrained', 'model files output directory path')
 tf.flags.DEFINE_string('XtoY_model', 'apple2orange.pb', 'XtoY model name, default: apple2orange.pb')
 tf.flags.DEFINE_string('YtoX_model', 'orange2apple.pb', 'YtoX model name, default: orange2apple.pb')
 tf.flags.DEFINE_integer('image_size', '256', 'image size, default: 256')
@@ -30,12 +31,13 @@ def export_graph(model_name, XtoY=True):
   with graph.as_default():
     cycle_gan = CycleGAN(ngf=FLAGS.ngf, norm=FLAGS.norm, image_size=FLAGS.image_size)
 
-    input_image = tf.placeholder(tf.float32, shape=[FLAGS.image_size, FLAGS.image_size, 3], name='input_image')
+    input_image_X = tf.placeholder(tf.float32, shape=[FLAGS.image_size, FLAGS.image_size, 1], name='input_image_X')
+    input_image_Y = tf.placeholder(tf.float32, shape=[FLAGS.image_size, FLAGS.image_size, 3], name='input_image_Y')
     cycle_gan.model()
     if XtoY:
-      output_image = cycle_gan.G.sample(tf.expand_dims(input_image, 0))
+      output_image = cycle_gan.G.sample(tf.expand_dims(input_image_X, 0))
     else:
-      output_image = cycle_gan.F.sample(tf.expand_dims(input_image, 0))
+      output_image = cycle_gan.F.sample(tf.expand_dims(input_image_Y, 0))
 
     output_image = tf.identity(output_image, name='output_image')
     restore_saver = tf.train.Saver()
@@ -48,7 +50,7 @@ def export_graph(model_name, XtoY=True):
     output_graph_def = tf.graph_util.convert_variables_to_constants(
         sess, graph.as_graph_def(), [output_image.op.name])
 
-    tf.train.write_graph(output_graph_def, 'pretrained', model_name, as_text=False)
+    tf.train.write_graph(output_graph_def, FLAGS.output_dir, model_name, as_text=False)
 
 def main(unused_argv):
   print('Export XtoY model...')

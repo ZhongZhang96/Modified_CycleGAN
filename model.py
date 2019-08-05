@@ -101,8 +101,8 @@ class CycleGAN:
     tf.summary.image('Y/reconstruction', utils.batch_convert2int(self.G(self.F(y))))
 
     return G_loss, D_Y_loss, F_loss, D_X_loss, fake_y, fake_x
-
-  def optimize(self, G_loss, D_Y_loss, F_loss, D_X_loss):
+    
+  def optimize(self, losses, frozen_F=False):
     def make_optimizer(loss, variables, name='Adam'):
       """ Adam optimizer with learning rate 0.0002 for the first 100k steps (~100 epochs)
           and a linearly decaying rate that goes to zero over the next 100k steps
@@ -131,13 +131,21 @@ class CycleGAN:
       )
       return learning_step
 
-    G_optimizer = make_optimizer(G_loss, self.G.variables, name='Adam_G')
-    D_Y_optimizer = make_optimizer(D_Y_loss, self.D_Y.variables, name='Adam_D_Y')
-    F_optimizer =  make_optimizer(F_loss, self.F.variables, name='Adam_F')
-    D_X_optimizer = make_optimizer(D_X_loss, self.D_X.variables, name='Adam_D_X')
+    if frozen_F:
+      G_optimizer = make_optimizer(losses['G_loss'], self.G.variables, name='Adam_G')
+      D_Y_optimizer = make_optimizer(losses['D_Y_loss'], self.D_Y.variables, name='Adam_D_Y')
 
-    with tf.control_dependencies([G_optimizer, D_Y_optimizer, F_optimizer, D_X_optimizer]):
-      return tf.no_op(name='optimizers')
+      with tf.control_dependencies([G_optimizer, D_Y_optimizer]):
+        return tf.no_op(name='optimizers')
+        
+    else:
+      G_optimizer = make_optimizer(losses['G_loss'], self.G.variables, name='Adam_G')
+      D_Y_optimizer = make_optimizer(losses['D_Y_loss'], self.D_Y.variables, name='Adam_D_Y')
+      F_optimizer =  make_optimizer(losses['F_loss'], self.F.variables, name='Adam_F')
+      D_X_optimizer = make_optimizer(losses['D_X_loss'], self.D_X.variables, name='Adam_D_X')
+
+      with tf.control_dependencies([G_optimizer, D_Y_optimizer, F_optimizer, D_X_optimizer]):
+        return tf.no_op(name='optimizers')
 
   def discriminator_loss(self, D, y, fake_y, use_lsgan=True):
     """ Note: default: D(y).shape == (batch_size,5,5,1),
